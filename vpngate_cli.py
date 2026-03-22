@@ -100,10 +100,16 @@ def connect_vpn(server, force_proto=None):
 
     config_data = server['config_text']
     
-    if force_proto == "tcp":
-        config_data = re.sub(r"proto udp", "proto tcp", config_data, flags=re.IGNORECASE)
-    elif force_proto == "udp":
-        config_data = re.sub(r"proto tcp", "proto udp", config_data, flags=re.IGNORECASE)
+    # Simple logic: If we want a protocol the server has, but it's not the default, we swap it.
+    if force_proto == "tcp" and "proto tcp" in config_data.lower() and "proto udp" in config_data.lower():
+        # Comment out udp, uncomment tcp if needed, or just swap. 
+        # Actually most VPN Gate configs have both, one is commented out.
+        # Let's just try to be simple:
+        config_data = re.sub(r"^proto udp", ";proto udp", config_data, flags=re.MULTILINE | re.IGNORECASE)
+        config_data = re.sub(r"^[; \t]*proto tcp", "proto tcp", config_data, flags=re.MULTILINE | re.IGNORECASE)
+    elif force_proto == "udp" and "proto udp" in config_data.lower() and "proto tcp" in config_data.lower():
+        config_data = re.sub(r"^proto tcp", ";proto tcp", config_data, flags=re.MULTILINE | re.IGNORECASE)
+        config_data = re.sub(r"^[; \t]*proto udp", "proto udp", config_data, flags=re.MULTILINE | re.IGNORECASE)
 
     temp_ovpn = "/tmp/vpngate-active.ovpn"
     with open(temp_ovpn, 'w') as f:
@@ -120,12 +126,21 @@ def connect_vpn(server, force_proto=None):
     remote_ip = remote_match.group(1) if remote_match else server['IP']
     remote_port = remote_match.group(2) if remote_match else "443"
     
+    # CLEAN LOGIC: No proto-tcp flag here.
     subprocess.run(["nmcli", "connection", "modify", CONNECTION_NAME, 
                     "vpn.user-name", "vpn",
                     "vpn.secrets", "password=vpn",
                     "+vpn.data", f"auth=SHA1, cipher=AES-128-CBC, data-ciphers=AES-256-GCM:AES-128-GCM:AES-128-CBC, data-ciphers-fallback=AES-128-CBC, connection-type=password, remote={remote_ip}, port={remote_port}"], capture_output=True)
 
-    is_currently_udp = "proto udp" in config_data.lower()
+    # Determine final proto for printing
+    is_currently_udp = "proto udp" in config_data.lower() and not re.search(r"^[; \t]*proto udp", config_data, re.MULTILINE | re.IGNORECASE)
+    # Wait, the above logic is complex. Let's just check the result of our replacement.
+    is_currently_udp = False
+    for line in config_data.splitlines():
+        if line.strip().lower() == "proto udp":
+            is_currently_udp = True
+            break
+
     print(f"Activating {('UDP' if is_currently_udp else 'TCP')} connection (10s timeout)...")
     try:
         up_res = subprocess.run(["timeout", "10s", "nmcli", "connection", "up", CONNECTION_NAME], capture_output=True, text=True)
