@@ -72,17 +72,18 @@ def connect_vpn(server):
                     "vpn.user-name", "vpn",
                     "vpn.secrets", "password=vpn",
                     "+vpn.data", f"auth=SHA1, cipher=AES-128-CBC, data-ciphers=AES-256-GCM:AES-128-GCM:AES-128-CBC, data-ciphers-fallback=AES-128-CBC, connection-type=password, remote={remote_ip}, port={remote_port}"], capture_output=True)
-print("Activating connection (10s timeout)...")
-try:
-    up_res = subprocess.run(["timeout", "10s", "nmcli", "connection", "up", CONNECTION_NAME], capture_output=True, text=True)
 
-    if up_res.returncode == 0:
-        with open(PID_FILE, "w") as f:
-            f.write(str(os.getpid()))
-        return True, "Successfully connected!"
-    elif up_res.returncode == 124:
-        subprocess.run(["nmcli", "connection", "delete", CONNECTION_NAME], capture_output=True)
-        return False, "Connection timed out (>10s). Server is too slow."
+    print("Activating connection (10s timeout)...")
+    try:
+        up_res = subprocess.run(["timeout", "10s", "nmcli", "connection", "up", CONNECTION_NAME], capture_output=True, text=True)
+        
+        if up_res.returncode == 0:
+            with open(PID_FILE, "w") as f:
+                f.write(str(os.getpid()))
+            return True, "Successfully connected!"
+        elif up_res.returncode == 124:
+            subprocess.run(["nmcli", "connection", "delete", CONNECTION_NAME], capture_output=True)
+            return False, "Connection timed out (>10s). Server is too slow."
         else:
             subprocess.run(["nmcli", "connection", "delete", CONNECTION_NAME], capture_output=True)
             return False, f"Connection failed: {up_res.stderr}"
