@@ -18,7 +18,13 @@ The script is installed in `~/vpngate-cli/` and symlinked to `vpngate` in your p
 
 ## Usage
 
-### 1. Connect to a VPN
+### 1. GUI Mode (New!)
+Launch the graphical interface:
+```bash
+vpngate-gui
+```
+
+### 2. CLI Mode (Connect to a VPN)
 By default, this shows the top UDP servers:
 ```bash
 vpngate
