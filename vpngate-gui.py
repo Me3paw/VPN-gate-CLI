@@ -48,10 +48,6 @@ class VPNWindow(QMainWindow):
         self.setWindowTitle("VPN Gate Client")
         self.setMinimumSize(950, 650)
         
-        # Set App Icon
-        if os.path.exists(ICON_256):
-            self.setWindowIcon(QIcon(ICON_256))
-        
         self.all_servers = []
         self.filtered_servers = []
         self.is_busy = False
@@ -114,6 +110,7 @@ class VPNWindow(QMainWindow):
         self.radio_group.buttonClicked.connect(self.apply_filter)
         controls_layout.addStretch()
         
+        # Action Buttons
         self.btn_refresh = QPushButton("Refresh List")
         self.btn_refresh.clicked.connect(self.load_servers)
         
@@ -136,14 +133,20 @@ class VPNWindow(QMainWindow):
         
         # System Tray
         self.tray_icon = QSystemTrayIcon(self)
+        icon = QIcon()
         if os.path.exists(ICON_64):
-            self.tray_icon.setIcon(QIcon(ICON_64))
+            icon = QIcon(ICON_64)
+        if icon.isNull():
+            icon = QIcon.fromTheme("network-vpn")
+        
+        self.tray_icon.setIcon(icon)
+        self.setWindowIcon(icon)
         
         tray_menu = QMenu()
         show_action = QAction("Open Client", self)
         show_action.triggered.connect(self.showNormal)
-        quit_action = QAction("Kill App", self)
-        quit_action.triggered.connect(QApplication.instance().quit)
+        quit_action = QAction("Kill App & VPN", self)
+        quit_action.triggered.connect(self.quit_app)
         
         tray_menu.addAction(show_action)
         tray_menu.addSeparator()
@@ -173,11 +176,14 @@ class VPNWindow(QMainWindow):
                 self.activateWindow()
 
     def closeEvent(self, event):
-        if self.tray_icon.isVisible():
-            self.hide()
-            event.ignore()
-        else:
-            event.accept()
+        # Only hide when user clicks the window X button
+        self.hide()
+        event.ignore()
+
+    def quit_app(self):
+        print("Cleaning up VPN and exiting...")
+        vpncore.disconnect_vpn()
+        QApplication.instance().quit()
 
     def update_ui_state(self, is_busy=False):
         self.is_busy = is_busy
@@ -288,7 +294,7 @@ class VPNWindow(QMainWindow):
 if __name__ == "__main__":
     os.environ["QT_QPA_PLATFORM"] = "wayland;xcb"
     app = QApplication(sys.argv)
-    app.setQuitOnLastWindowClosed(False) # Keep running when closed to tray
+    app.setQuitOnLastWindowClosed(False)
     window = VPNWindow()
     window.show()
     sys.exit(app.exec())
