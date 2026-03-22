@@ -1,177 +1,7 @@
 #!/usr/bin/env python3
-import requests
-import base64
-import subprocess
 import sys
 import argparse
-import os
-import re
-import time
-
-API_URL = "https://www.vpngate.net/api/iphone/"
-CONNECTION_NAME = "vpngate-active"
-PID_FILE = "/tmp/vpngate-cli.pid"
-
-def get_servers():
-    try:
-        response = requests.get(API_URL, timeout=10)
-        response.raise_for_status()
-        lines = response.text.splitlines()
-        if len(lines) < 2:
-            return []
-        
-        header = lines[1][1:].split(",")
-        servers = []
-        for line in lines[2:]:
-            if line.startswith("*") or line.startswith("#") or not line.strip():
-                continue
-            parts = line.split(",")
-            if len(parts) < 15:
-                continue
-            server = dict(zip(header, parts))
-            
-            try:
-                config_data = base64.b64decode(server['OpenVPN_ConfigData_Base64']).decode('utf-8', errors='ignore')
-                server['has_udp'] = "proto udp" in config_data.lower()
-                server['has_tcp'] = "proto tcp" in config_data.lower() or "proto udp" not in config_data.lower()
-                server['config_text'] = config_data
-                servers.append(server)
-            except:
-                continue
-        return servers
-    except Exception as e:
-        print(f"Error fetching servers: {e}")
-        return []
-
-def is_active():
-    res = subprocess.run(["nmcli", "-t", "-f", "NAME,STATE", "connection", "show", "--active"], capture_output=True, text=True)
-    return CONNECTION_NAME in res.stdout
-
-def get_stats():
-    if not is_active():
-        return None
-    
-    res = subprocess.run(["nmcli", "-t", "-f", "NAME,DEVICE", "connection", "show", "--active"], capture_output=True, text=True)
-    device = None
-    for line in res.stdout.splitlines():
-        if line.startswith(CONNECTION_NAME):
-            device = line.split(":")[1]
-            break
-    
-    if not device:
-        return None
-
-    def get_bytes():
-        try:
-            with open("/proc/net/dev", "r") as f:
-                for line in f:
-                    if device in line:
-                        parts = line.split()
-                        return int(parts[1]), int(parts[9])
-        except:
-            pass
-        return 0, 0
-
-    b1_rx, b1_tx = get_bytes()
-    time.sleep(1)
-    b2_rx, b2_tx = get_bytes()
-    
-    down_speed = (b2_rx - b1_rx) / 1024
-    up_speed = (b2_tx - b1_tx) / 1024
-
-    ping_res = subprocess.run(["ping", "-c", "3", "-W", "2", "8.8.8.8"], capture_output=True, text=True)
-    ping_val = "N/A"
-    loss_val = "100%"
-    
-    if ping_res.returncode == 0:
-        loss_match = re.search(r"(\d+)% packet loss", ping_res.stdout)
-        if loss_match:
-            loss_val = loss_match.group(1) + "%"
-        
-        avg_match = re.search(r"avg/max/mdev = [\d\.]+/([\d\.]+)/", ping_res.stdout)
-        if avg_match:
-            ping_val = avg_match.group(1) + " ms"
-
-    return up_speed, down_speed, ping_val, loss_val
-
-def connect_vpn(server, force_proto=None):
-    if is_active():
-        return False, "Error: A VPN connection is already active. Stop it first."
-
-    config_data = server['config_text']
-    
-    # Simple logic: If we want a protocol the server has, but it's not the default, we swap it.
-    if force_proto == "tcp" and "proto tcp" in config_data.lower() and "proto udp" in config_data.lower():
-        # Comment out udp, uncomment tcp if needed, or just swap. 
-        # Actually most VPN Gate configs have both, one is commented out.
-        # Let's just try to be simple:
-        config_data = re.sub(r"^proto udp", ";proto udp", config_data, flags=re.MULTILINE | re.IGNORECASE)
-        config_data = re.sub(r"^[; \t]*proto tcp", "proto tcp", config_data, flags=re.MULTILINE | re.IGNORECASE)
-    elif force_proto == "udp" and "proto udp" in config_data.lower() and "proto tcp" in config_data.lower():
-        config_data = re.sub(r"^proto tcp", ";proto tcp", config_data, flags=re.MULTILINE | re.IGNORECASE)
-        config_data = re.sub(r"^[; \t]*proto udp", "proto udp", config_data, flags=re.MULTILINE | re.IGNORECASE)
-
-    temp_ovpn = "/tmp/vpngate-active.ovpn"
-    with open(temp_ovpn, 'w') as f:
-        f.write(config_data)
-    
-    subprocess.run(["nmcli", "connection", "delete", CONNECTION_NAME], capture_output=True)
-    
-    import_res = subprocess.run(["nmcli", "connection", "import", "type", "openvpn", "file", temp_ovpn], capture_output=True, text=True)
-    
-    if import_res.returncode != 0:
-        return False, f"Failed to import: {import_res.stderr}"
-
-    remote_match = re.search(r"^remote\s+([\d\.]+)\s+(\d+)", config_data, re.MULTILINE)
-    remote_ip = remote_match.group(1) if remote_match else server['IP']
-    remote_port = remote_match.group(2) if remote_match else "443"
-    
-    # CLEAN LOGIC: No proto-tcp flag here.
-    subprocess.run(["nmcli", "connection", "modify", CONNECTION_NAME, 
-                    "vpn.user-name", "vpn",
-                    "vpn.secrets", "password=vpn",
-                    "+vpn.data", f"auth=SHA1, cipher=AES-128-CBC, data-ciphers=AES-256-GCM:AES-128-GCM:AES-128-CBC, data-ciphers-fallback=AES-128-CBC, connection-type=password, remote={remote_ip}, port={remote_port}"], capture_output=True)
-
-    # Determine final proto for printing
-    is_currently_udp = "proto udp" in config_data.lower() and not re.search(r"^[; \t]*proto udp", config_data, re.MULTILINE | re.IGNORECASE)
-    # Wait, the above logic is complex. Let's just check the result of our replacement.
-    is_currently_udp = False
-    for line in config_data.splitlines():
-        if line.strip().lower() == "proto udp":
-            is_currently_udp = True
-            break
-
-    print(f"Activating {('UDP' if is_currently_udp else 'TCP')} connection (10s timeout)...")
-    try:
-        up_res = subprocess.run(["timeout", "10s", "nmcli", "connection", "up", CONNECTION_NAME], capture_output=True, text=True)
-        
-        if up_res.returncode == 0:
-            with open(PID_FILE, "w") as f:
-                f.write(str(os.getpid()))
-            return True, "Successfully connected!"
-        elif up_res.returncode == 124:
-            subprocess.run(["nmcli", "connection", "delete", CONNECTION_NAME], capture_output=True)
-            return False, "Connection timed out (>10s)."
-        else:
-            subprocess.run(["nmcli", "connection", "delete", CONNECTION_NAME], capture_output=True)
-            return False, f"Connection failed: {up_res.stderr}"
-    except Exception as e:
-        subprocess.run(["nmcli", "connection", "delete", CONNECTION_NAME], capture_output=True)
-        return False, str(e)
-    finally:
-        if os.path.exists(temp_ovpn):
-            os.remove(temp_ovpn)
-
-def disconnect_vpn():
-    if not is_active():
-        subprocess.run(["nmcli", "connection", "delete", CONNECTION_NAME], capture_output=True)
-        return False, "No active VPN connection found."
-
-    subprocess.run(["nmcli", "connection", "down", CONNECTION_NAME], capture_output=True)
-    subprocess.run(["nmcli", "connection", "delete", CONNECTION_NAME], capture_output=True)
-    if os.path.exists(PID_FILE):
-        os.remove(PID_FILE)
-    return True, "VPN disconnected."
+import vpngate_core as vpncore
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="VPN Gate CLI Connector")
@@ -182,15 +12,15 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.stop:
-        success, msg = disconnect_vpn()
+        success, msg = vpncore.disconnect_vpn()
         print(msg)
         sys.exit(0 if success else 1)
     
     if args.status:
-        active = is_active()
-        print(f"Status: {CONNECTION_NAME} is {'ACTIVE' if active else 'NOT active'}")
+        active = vpncore.is_active()
+        print(f"Status: {vpncore.CONNECTION_NAME} is {'ACTIVE' if active else 'NOT active'}")
         if active:
-            stats = get_stats()
+            stats = vpncore.get_stats()
             if stats:
                 up, down, ping, loss = stats
                 print(f"Down: {down:.1f} KB/s | Up: {up:.1f} KB/s")
@@ -199,7 +29,7 @@ if __name__ == "__main__":
 
     proto_pref = "all" if args.all else ("tcp" if args.tcp else "udp")
     print(f"Fetching servers (Preference: {proto_pref.upper()})...")
-    servers = get_servers()
+    servers = vpncore.get_servers()
     
     filtered = []
     for s in servers:
@@ -220,7 +50,7 @@ if __name__ == "__main__":
         if choice.lower() == 'q': sys.exit(0)
         idx = int(choice)
         if 0 <= idx < len(filtered):
-            success, msg = connect_vpn(filtered[idx], force_proto=("tcp" if proto_pref == "tcp" else None))
+            success, msg = vpncore.connect_vpn(filtered[idx], force_proto=("tcp" if proto_pref == "tcp" else None))
             print(msg)
         else:
             print("Invalid index.")
