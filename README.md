@@ -14,20 +14,33 @@ A lightweight Python script to connect to [VPN Gate](https://www.vpngate.net/) s
 
 ## Installation
 
-The script is installed in `~/vpn-gate-client/` and symlinked to `vpngate` in your path.
+### 1. AUR (Arch Linux) - WIP
+The project is currently being submitted to the AUR. You can try installing it with:
+```bash
+yay -S vpn-gate-client
+```
+
+### 2. Manual Installation
+Clone the repository and run the scripts directly:
+```bash
+git clone https://github.com/Me3paw/vpn-gate-client.git
+cd vpn-gate-client
+```
+
+Dependencies will be automatically installed from `requirements.txt` the first time you run either script.
 
 ## Usage
 
-### 1. GUI Mode (New!)
+### 1. GUI Mode (Recommended)
 Launch the graphical interface:
 ```bash
-vpngate-gui
+./vpngate-gui.py
 ```
 
-### 2. CLI Mode (Connect to a VPN)
-By default, this shows the top UDP servers:
+### 2. CLI Mode
+Connect to a VPN using the command line:
 ```bash
-vpngate
+./vpngate_cli.py
 ```
 
 ### 2. Connection Options

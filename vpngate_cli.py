@@ -1,5 +1,30 @@
 #!/usr/bin/env python3
 import sys
+import subprocess
+import os
+
+def check_dependencies():
+    """Check if required packages are installed, if not, try to install from requirements.txt"""
+    try:
+        import requests
+        import PyQt6
+    except ImportError:
+        print("Required dependencies not found. Installing from requirements.txt...")
+        script_dir = os.path.dirname(os.path.realpath(__file__))
+        req_path = os.path.join(script_dir, "requirements.txt")
+        if os.path.exists(req_path):
+            try:
+                subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", req_path])
+                print("Dependencies installed successfully.")
+            except subprocess.CalledProcessError:
+                print("Failed to install dependencies. Please run 'pip install -r requirements.txt' manually.")
+                sys.exit(1)
+        else:
+            print("requirements.txt not found. Please install dependencies manually.")
+            sys.exit(1)
+
+check_dependencies()
+
 import argparse
 import vpngate_core as vpncore
 
