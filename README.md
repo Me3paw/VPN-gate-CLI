@@ -76,3 +76,7 @@ The script enforces a 10s timeout. Many VPN Gate servers are hosted by volunteer
 - **Connection Name:** `vpngate-active`
 - **Configuration:** Uses `nmcli connection import` followed by manual `vpn.data` modification to inject `data-ciphers-fallback` and legacy providers.
 - **Credentials:** Automatically sets username `vpn` and password `vpn`.
+
+### Credits
+VPN Gate : https://www.vpngate.net/en/
+u/fluidmechanicsdoubts on Reddit 
