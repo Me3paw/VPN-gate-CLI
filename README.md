@@ -14,7 +14,7 @@ A lightweight Python script to connect to [VPN Gate](https://www.vpngate.net/) s
 
 ## Installation
 
-The script is installed in `~/vpngate-cli/` and symlinked to `vpngate` in your path.
+The script is installed in `~/vpn-gate-client/` and symlinked to `vpngate` in your path.
 
 ## Usage
 
