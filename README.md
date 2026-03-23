@@ -14,7 +14,7 @@ A lightweight Python script to connect to [VPN Gate](https://www.vpngate.net/) s
 
 ## Installation
 
-### 1. AUR (Arch Linux) - WIP
+### 1. AUR (Arch Linux)
 The project is currently being submitted to the AUR. You can try installing it with:
 ```bash
 yay -S vpn-gate-client
