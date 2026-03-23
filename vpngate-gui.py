@@ -30,7 +30,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QPushButton, QLabel, QRadioButton, QButtonGroup, 
                              QHeaderView, QMessageBox, QSystemTrayIcon, QMenu)
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
-from PyQt6.QtGui import QIcon, QAction
+from PyQt6.QtGui import QIcon, QAction, QPalette, QColor
 
 # Ensure we can import the core logic
 script_dir = os.path.dirname(os.path.realpath(__file__))
@@ -92,7 +92,7 @@ class VPNWindow(QMainWindow):
         # 1. TOP: Server List
         self.table = QTableWidget()
         self.table.setColumnCount(6)
-        self.table.setHorizontalHeaderLabels(["Idx", "Proto", "Country", "IP", "Score", "Ping"])
+        self.table.setHorizontalHeaderLabels(["No", "Ping", "Rating", "Country", "IP", "Protocol"])
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -102,6 +102,9 @@ class VPNWindow(QMainWindow):
             QHeaderView::section {{ background-color: #333; color: white; padding: 5px; border: 1px solid #444; }}
             QTableWidget::item:selected {{ background-color: #3498db; }}
         """)
+        self.table.horizontalHeader().sectionClicked.connect(self.sort_by_column)
+        self.current_sort_col = 2  # Default sort by Rating
+        self.sort_reverse = True
         self.main_layout.addWidget(self.table)
         
         # 2. MIDDLE: Detailed Status
@@ -263,6 +266,17 @@ class VPNWindow(QMainWindow):
     def load_servers(self):
         self.status_label.setText("Status: Fetching servers...")
         self.all_servers = vpncore.get_servers()
+        for i, s in enumerate(self.all_servers):
+            s['gui_idx'] = i
+        self.apply_filter()
+
+    def sort_by_column(self, col):
+        if self.current_sort_col == col:
+            self.sort_reverse = not self.sort_reverse
+        else:
+            self.current_sort_col = col
+            # Numbers descending by default, strings ascending
+            self.sort_reverse = True if col in [0, 1, 2] else False
         self.apply_filter()
 
     def apply_filter(self):
@@ -276,7 +290,24 @@ class VPNWindow(QMainWindow):
             elif pref_udp and s['has_udp']: self.filtered_servers.append(s)
             elif pref_tcp and s['has_tcp']: self.filtered_servers.append(s)
             
-        self.filtered_servers.sort(key=lambda x: int(x['Score']), reverse=True)
+        def get_ping(s):
+            p = s.get('Ping', '0')
+            try: return int(p)
+            except: return 9999
+
+        def get_proto(s):
+            return "TCP" if (self.radio_tcp.isChecked() and s['has_tcp']) or not s['has_udp'] else "UDP"
+
+        key_map = {
+            0: lambda x: int(x.get('gui_idx', 0)),
+            1: get_ping,
+            2: lambda x: int(x.get('Score', 0)),
+            3: lambda x: x.get('CountryShort', ''),
+            4: lambda x: x.get('IP', ''),
+            5: get_proto
+        }
+        
+        self.filtered_servers.sort(key=key_map.get(self.current_sort_col, lambda x: 0), reverse=self.sort_reverse)
         self.update_table()
         self.update_ui_state()
 
@@ -286,10 +317,13 @@ class VPNWindow(QMainWindow):
         for i, s in enumerate(self.filtered_servers[:100]):
             self.table.insertRow(i)
             p_display = "TCP" if (pref_tcp and s['has_tcp']) or not s['has_udp'] else "UDP"
-            items = [str(i), p_display, s['CountryShort'], s['IP'], s['Score'], s['Ping']]
+            # Order: No, Ping, Rating, Country, IP, Protocol
+            items = [str(s.get('gui_idx', i)), s.get('Ping', 'N/A'), s.get('Score', '0'), 
+                     s.get('CountryShort', '??'), s.get('IP', ''), p_display]
             for col, text in enumerate(items):
                 item = QTableWidgetItem(text)
-                if col == 1: item.setForeground(Qt.GlobalColor.cyan if text == "UDP" else Qt.GlobalColor.yellow)
+                if col == 5: # Protocol column
+                    item.setForeground(Qt.GlobalColor.cyan if text == "UDP" else Qt.GlobalColor.yellow)
                 self.table.setItem(i, col, item)
 
     def start_connect(self):
@@ -325,9 +359,34 @@ class VPNWindow(QMainWindow):
             QMessageBox.critical(self, "VPN Error", message)
         self.update_ui_state()
 
+def set_dark_theme(app):
+    app.setStyle("Fusion")
+    palette = QPalette()
+    palette.setColor(QPalette.ColorRole.Window, QColor(30, 30, 30))
+    palette.setColor(QPalette.ColorRole.WindowText, QColor(236, 240, 241))
+    palette.setColor(QPalette.ColorRole.Base, QColor(45, 45, 45))
+    palette.setColor(QPalette.ColorRole.AlternateBase, QColor(30, 30, 30))
+    palette.setColor(QPalette.ColorRole.ToolTipBase, QColor(236, 240, 241))
+    palette.setColor(QPalette.ColorRole.ToolTipText, QColor(30, 30, 30))
+    palette.setColor(QPalette.ColorRole.Text, QColor(236, 240, 241))
+    palette.setColor(QPalette.ColorRole.Button, QColor(45, 45, 45))
+    palette.setColor(QPalette.ColorRole.ButtonText, QColor(236, 240, 241))
+    palette.setColor(QPalette.ColorRole.BrightText, QColor(231, 76, 60))
+    palette.setColor(QPalette.ColorRole.Link, QColor(52, 152, 219))
+    palette.setColor(QPalette.ColorRole.Highlight, QColor(52, 152, 219))
+    palette.setColor(QPalette.ColorRole.HighlightedText, QColor(255, 255, 255))
+    
+    # Disabled state colors
+    palette.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Text, QColor(127, 127, 127))
+    palette.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.ButtonText, QColor(127, 127, 127))
+    palette.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.WindowText, QColor(127, 127, 127))
+    
+    app.setPalette(palette)
+
 if __name__ == "__main__":
     os.environ["QT_QPA_PLATFORM"] = "wayland;xcb"
     app = QApplication(sys.argv)
+    set_dark_theme(app)
     
     # Add this line so Wayland knows which .desktop file to associate with this process
     app.setDesktopFileName("vpngate-gui") 
